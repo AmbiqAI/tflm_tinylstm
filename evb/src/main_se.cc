@@ -1,0 +1,175 @@
+#include "tflite.h"
+#include <stdint.h>
+#include "am_util_stdio.h"
+#include "ns_peripherals_button.h"
+#include "ns_peripherals_power.h"
+#include "ns_ambiqsuite_harness.h"
+#include "ns_audio.h"
+#include "ambiq_nnsp_const.h"
+#include "ns_timer.h"
+#include "ns_energy_monitor.h"
+
+#ifdef DEF_GUI_ENABLE
+#include "ns_rpc_generic_data.h"
+#endif
+// #define ENERGY_MEASUREMENT
+#define NUM_CHANNELS 1
+int volatile g_intButtonPressed = 0;
+///Button Peripheral Config Struct
+#ifdef DEF_GUI_ENABLE
+ns_button_config_t button_config_nnsp = {
+    .button_0_enable = false,
+    .button_1_enable = false,
+    .button_0_flag = NULL,
+    .button_1_flag = NULL
+};
+#else
+ns_button_config_t button_config_nnsp = {
+    .button_0_enable = true,
+    .button_1_enable = false,
+    .button_0_flag = &g_intButtonPressed,
+    .button_1_flag = NULL
+};
+#endif
+/// Set by app when it wants to start recording, used by callback
+bool volatile static g_audioRecording = false;
+/// Set by callback when audio buffer has been copied, cleared by
+/// app when the buffer has been consumed.
+bool volatile static g_audioReady = false;
+/// Audio buffer for application
+int16_t static g_in16AudioDataBuffer[LEN_STFT_HOP << 1];
+uint32_t static audadcSampleBuffer[(LEN_STFT_HOP << 1) + 3];
+
+#ifdef DEF_GUI_ENABLE 
+static char msg_store[30] = "Audio16bPCM_to_WAV";
+char msg_compute[30] = "CalculateMFCC_Please";
+// Block sent to PC
+static dataBlock pcmBlock = { // the block for pcm
+    .length = (LEN_STFT_HOP << 1) * sizeof(int16_t),
+    .dType = uint8_e,
+    .description = msg_store,
+    .cmd = write_cmd,
+    .buffer = {.data = (uint8_t *) g_in16AudioDataBuffer, // point this to audio buffer
+               .dataLength = (LEN_STFT_HOP << 1) * sizeof(int16_t)}};
+// Block sent to PC for computation
+dataBlock computeBlock = {  // this block is useless here actually
+    .length = (LEN_STFT_HOP << 1) * sizeof(int16_t),
+    .dType = uint8_e,
+    .description = msg_compute,
+    .cmd = extract_cmd,
+    .buffer = {.data = (uint8_t *) g_in16AudioDataBuffer, // point this to audio buffer
+               .dataLength = (LEN_STFT_HOP << 1) * sizeof(int16_t)}};
+
+dataBlock IsRecordBlock;
+// Block sent to PC for computation
+ns_rpc_config_t rpcConfig = {.mode = NS_RPC_GENERICDATA_CLIENT,
+                            .sendBlockToEVB_cb = NULL,
+                            .fetchBlockFromEVB_cb = NULL,
+                            .computeOnEVB_cb = NULL};
+#endif
+/**
+* 
+* @brief Audio Callback (user-defined, executes in IRQ context)
+* 
+* When the 'g_audioRecording' flag is set, copy the latest sample to a buffer
+* and set a 'ready' flag. If recording flag isn't set, discard buffer.
+* If 'ready' flag is still set, the last buffer hasn't been consumed yet,
+* print a debug message and overwrite.
+* 
+*/
+void
+audio_frame_callback(ns_audio_config_t *config, uint16_t bytesCollected) {
+    uint32_t *pui32_buffer =
+        (uint32_t *) am_hal_audadc_dma_get_buffer(config->audioSystemHandle);
+
+    if (g_audioRecording) {
+        if (g_audioReady)
+            ns_lp_printf("Warning - audio buffer wasnt consumed in time\n");
+
+        // Raw PCM data is 32b (12b/channel) - here we only care about one
+        // channel For ringbuffer mode, this loop may feel extraneous, but it is
+        // needed because ringbuffers are treated a blocks, so there is no way
+        // to convert 32b->16b
+        for (int i = 0; i < config->numSamples; i++) {
+            g_in16AudioDataBuffer[i] = (int16_t)( pui32_buffer[i] & 0x0000FFF0);
+
+            if (i == 4) {
+                // Workaround for AUDADC sample glitch, here while it is root caused
+                g_in16AudioDataBuffer[3] = (g_in16AudioDataBuffer[2] + g_in16AudioDataBuffer[4]) >> 1; 
+            }
+        }
+#ifdef RINGBUFFER_MODE
+        ns_ring_buffer_push(&(config->bufferHandle[0]),
+                                      g_in16AudioDataBuffer,
+                                      (config->numSamples * 2), // in bytes
+                                      false);
+#endif
+        g_audioReady = true;
+    }
+}
+
+/**
+ * @brief NeuralSPOT Audio config struct
+ * 
+ * Populate this struct before calling ns_audio_config()
+ * 
+ */
+ns_audio_config_t audio_config = {
+#ifdef RINGBUFFER_MODE
+    .eAudioApiMode = NS_AUDIO_API_RINGBUFFER,
+    .callback = audio_frame_callback,
+    .audioBuffer = (void *)&pui8AudioBuff,
+#else
+    .eAudioApiMode = NS_AUDIO_API_CALLBACK,
+    .callback = audio_frame_callback,
+    .audioBuffer = (void *) &g_in16AudioDataBuffer,
+#endif
+    .eAudioSource = NS_AUDIO_SOURCE_AUDADC,
+    .sampleBuffer = audadcSampleBuffer,
+    .numChannels = NUM_CHANNELS,
+    .numSamples = LEN_STFT_HOP,
+    .sampleRate = SAMPLING_RATE,
+    .audioSystemHandle = NULL, // filled in by audio_init()
+#ifdef RINGBUFFER_MODE
+    .bufferHandle = audioBuf
+#else
+    .bufferHandle = NULL
+#endif
+};
+
+const ns_power_config_t ns_lp_audio = {
+        .eAIPowerMode           = NS_MAXIMUM_PERF,
+        .bNeedAudAdc            = true,
+        .bNeedSharedSRAM        = false,
+        .bNeedCrypto            = false,
+        .bNeedBluetooth         = false,
+        .bNeedUSB               = false,
+        .bNeedIOM               = false,
+        .bNeedAlternativeUART   = false,
+        .b128kTCM               = false,
+        .bEnableTempCo          = false,
+        .bNeedITM               = false};                                  
+
+int main(void) {
+    int16_t *se_output = g_in16AudioDataBuffer + LEN_STFT_HOP;
+    g_audioRecording = false;
+
+    ns_core_init();
+    // ns_power_config(&ns_lp_audio);
+    ns_power_config(&ns_audio_default);
+
+    #ifdef ENERGY_MEASUREMENT
+        // ns_uart_printf_enable(); // use uart to print, uses less power
+        ns_itm_printf_enable(); 
+        ns_init_power_monitor_state();
+        ns_set_power_monitor_state(NS_IDLE);
+    #else
+        ns_itm_printf_enable();
+    #endif
+
+    ns_audio_init(&audio_config);
+    ns_peripheral_button_init(&button_config_nnsp);
+
+    tflite_init();
+    test_tflite();
+}
