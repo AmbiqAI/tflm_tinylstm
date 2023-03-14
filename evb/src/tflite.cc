@@ -4,15 +4,13 @@
 #include "ns_ambiqsuite_harness.h"
 #include "tflite.h"
 #include "tensorflow/lite/micro/all_ops_resolver.h"
-#include "tensorflow/lite/micro/kernels/micro_ops.h"
 #if defined(NS_TF_VERSION_fecdd5d) || defined(NS_TF_VERSION_be2f4f8) 
     #include "tensorflow/lite/micro/tflite_bridge/micro_error_reporter.h"
 #else
     #include "tensorflow/lite/micro/micro_error_reporter.h"
 #endif
 #include "tensorflow/lite/micro/micro_interpreter.h"
-#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
-#include "tensorflow/lite/micro/micro_profiler.h"
+#include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "quant_model_act.h"
@@ -37,6 +35,8 @@ ns_timer_config_t tickTimer = {
 
 void tflite_init(void)
 {
+    // This pulls in all the operation implementations we need.
+    static tflite::AllOpsResolver resolver;
     error_reporter = &micro_error_reporter;
     tflite::InitializeTarget();
     ns_TFDebugLogInit(NULL,NULL);
@@ -51,9 +51,6 @@ void tflite_init(void)
         return;
     }
 
-    // This pulls in all the operation implementations we need.
-    static tflite::AllOpsResolver resolver;
-
     // Build an interpreter to run the model with.
 #if defined(NS_TF_VERSION_fecdd5d) || defined(NS_TF_VERSION_be2f4f8) 
     ns_lp_printf("tflm version fecdd5d\n");
@@ -67,8 +64,7 @@ void tflite_init(void)
         pt_model,
         resolver,
         tensor_arena,
-        kTensorArenaSize,
-        error_reporter);
+        kTensorArenaSize);
  #endif   
     pt_interpreter = &static_interpreter;
     ns_lp_printf("Initialization\n");

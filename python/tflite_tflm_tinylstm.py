@@ -16,7 +16,7 @@ MODEL_TFLITE_MICRO = MODELS_DIR + 'model.cc'
 
 # Number of sample datapoints
 EPOCHS      = 1
-BITS_ACT    = 8
+BITS_ACT    = 16
 SAMPLES     = 1000
 DIM_INPUT   = 128
 WIDTH       = 50
@@ -96,7 +96,7 @@ def representative_dataset():
         val = np.random.uniform(
             low     = -2**BITS_ACT / 2.0**(BITS_ACT>>1),
             high    = (2**BITS_ACT-1) / 2.0**(BITS_ACT>>1),
-            size    = (1, 6, DIM_INPUT, 1)).astype(np.float32)
+            size    = (1, 6, DIM_INPUT)).astype(np.float32)
         yield {"input_compmel" : val}
 
 # Set the optimization flag.
