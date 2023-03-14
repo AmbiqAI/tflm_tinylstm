@@ -19,7 +19,7 @@ FABI     = hard
 
 ##### Extern Library Defaults #####
 AS_VERSION := R4.3.0
-TF_VERSION := fecdd5d
+TF_VERSION := be2f4f8
 SR_VERSION := R7.70a
 ERPC_VERSION := R1.9.1
 CMSIS_VERSION := CMSIS_5-5.9.0
