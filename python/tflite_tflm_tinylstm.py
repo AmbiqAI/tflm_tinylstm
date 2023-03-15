@@ -79,7 +79,7 @@ model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
 #%% Train the mdoel
 # Train the model on our training data while validating on our validation set
-history = model.fit(
+model.fit(
         x_train, y_train,
         epochs          = EPOCHS,
         batch_size      = BATCH_SIZE,

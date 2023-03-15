@@ -52,8 +52,13 @@ void tflite_init(void)
     }
 
     // Build an interpreter to run the model with.
-#if defined(NS_TF_VERSION_fecdd5d) || defined(NS_TF_VERSION_be2f4f8) 
+#if defined(NS_TF_VERSION_fecdd5d) || defined(NS_TF_VERSION_be2f4f8)
+    #if defined(NS_TF_VERSION_fecdd5d) 
     ns_lp_printf("tflm version fecdd5d\n");
+    #endif
+    #if defined(NS_TF_VERSION_be2f4f8) 
+    ns_lp_printf("tflm version be2f4f8\n");
+    #endif
     static tflite::MicroInterpreter static_interpreter(
         pt_model,
         resolver,
