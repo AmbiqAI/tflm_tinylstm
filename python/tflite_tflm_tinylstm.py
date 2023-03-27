@@ -16,7 +16,7 @@ MODEL_TFLITE_MICRO = MODELS_DIR + 'model.cc'
 
 # Number of sample datapoints
 EPOCHS      = 1
-BITS_ACT    = 8
+BITS_ACT    = 16
 SAMPLES     = 1000
 DIM_INPUT   = 128
 WIDTH       = 50
@@ -79,7 +79,7 @@ model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
 #%% Train the mdoel
 # Train the model on our training data while validating on our validation set
-history = model.fit(
+model.fit(
         x_train, y_train,
         epochs          = EPOCHS,
         batch_size      = BATCH_SIZE,
@@ -96,7 +96,7 @@ def representative_dataset():
         val = np.random.uniform(
             low     = -2**BITS_ACT / 2.0**(BITS_ACT>>1),
             high    = (2**BITS_ACT-1) / 2.0**(BITS_ACT>>1),
-            size    = (1, 6, DIM_INPUT, 1)).astype(np.float32)
+            size    = (1, 6, DIM_INPUT)).astype(np.float32)
         yield {"input_compmel" : val}
 
 # Set the optimization flag.
